@@ -1,0 +1,6 @@
+@SalesAnalysisETLApp.Api_HostAddress = http://localhost:5098
+
+GET {{SalesAnalysisETLApp.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
