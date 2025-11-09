@@ -8,14 +8,20 @@
 
   <ItemGroup>
     <Folder Include="Destinations\" />
-    <Folder Include="Sources\Api\" />
     <Folder Include="Sources\Csv\Repositories\" />
     <Folder Include="Sources\Dwh\" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="33.1.0" />
+    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SalesAnalysisETLApp.Application\SalesAnalysisETLApp.Application.csproj" />
   </ItemGroup>
 
 </Project>
