@@ -5,10 +5,12 @@ namespace SalesAnalysisETLApp.WorkerService
         public static void Main(string[] args)
         {
             var builder = Host.CreateApplicationBuilder(args);
-            builder.Services.AddHostedService<Worker>();
 
-            // Cargar configuración desde appsettings
+            // Cargar configuración desde appsettings.json
             builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+            // Registrar IHttpClientFactory 
+            builder.Services.AddHttpClient("SalesApiClient");
 
             // Registrar el Worker
             builder.Services.AddHostedService<Worker>();

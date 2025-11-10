@@ -1,4 +1,9 @@
 
+using Microsoft.EntityFrameworkCore;
+using SalesAnalysisETLApp.Api.Data.Context;
+using SalesAnalysisETLApp.Api.Data.Interfaces;
+using SalesAnalysisETLApp.Api.Data.Repositories;
+
 namespace SalesAnalysisETLApp.Api
 {
     public class Program
@@ -6,6 +11,15 @@ namespace SalesAnalysisETLApp.Api
         public static void Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
+
+            // Configuración de DbContext
+            builder.Services.AddDbContext<ExternalContext>(options =>
+                options.UseSqlServer(builder.Configuration.GetConnectionString("ExternalDB")));
+
+
+            // Repositorios
+            builder.Services.AddScoped<IClienteRepository, ClienteRepository>();
+            builder.Services.AddScoped<IProductoRepository, ProductoRepository>();
 
             // Add services to the container.
 

@@ -16,8 +16,17 @@ namespace SalesAnalysisETLApp.Persistence.Sources.Api
 
         public async Task<IEnumerable<T>> ExtractAsync()
         {
-            var data = await _client.GetFromJsonAsync<List<T>>(_endpoint);
-            return data ?? new List<T>();
+            try
+            {
+                var data = await _client.GetFromJsonAsync<List<T>>(_endpoint);
+                return data ?? new List<T>();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error extrayendo datos desde API: {_endpoint}");
+                Console.WriteLine(ex.Message);
+                return new List<T>();
+            }
         }
     }
 }
