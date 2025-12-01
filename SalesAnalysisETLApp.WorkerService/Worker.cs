@@ -1,4 +1,3 @@
-using SalesAnalysisETLApp.Domain.Entities.Facts;
 using SalesAnalysisETLApp.Domain.RawModels;
 using SalesAnalysisETLApp.Persistence.Sources.Api;
 using SalesAnalysisETLApp.Persistence.Sources.BD;
@@ -24,7 +23,7 @@ public class Worker : BackgroundService
 
         try
         {
-            // EXTRAER DESDE CSV ===
+            // EXTRAER DESDE CSV
             var productsPath = GetRequiredConfig("FilePaths:ProductsCsv");
             var customersPath = GetRequiredConfig("FilePaths:CustomersCsv");
             var ordersPath = GetRequiredConfig("FilePaths:OrdersCsv");
@@ -45,7 +44,7 @@ public class Worker : BackgroundService
             _logger.LogInformation($"Órdenes extraídas (CSV): {orders.Count()}");
             _logger.LogInformation($"Detalles de órdenes extraídos (CSV): {orderDetails.Count()}");
 
-            // EXTRAER DESDE API ===
+            // EXTRAER DESDE API
             _logger.LogInformation("Extrayendo datos actualizados desde API...");
 
             var httpClient = _httpClientFactory.CreateClient("SalesApiClient");
@@ -64,7 +63,19 @@ public class Worker : BackgroundService
             _logger.LogInformation($"Productos extraídos (API): {apiProductos.Count()}");
 
             // EXTRAER DESDE BD EXTERNA
-            
+            _logger.LogInformation("Extrayendo datos desde Base de Datos externa...");
+
+            var externalDbConnection = GetRequiredConfig("ConnectionStrings:ExternalDB");
+            var externalDbQuery = GetRequiredConfig("Queries:HistoricalSales");
+
+            var historicalSalesExtractor = new DatabaseExtractor<RawHistoricalSale>(
+                externalDbConnection,
+                externalDbQuery
+            );
+
+            var historicalSales = await historicalSalesExtractor.ExtractAsync();
+
+            _logger.LogInformation($"Ventas históricas extraídas (BD externa): {historicalSales.Count()}");
 
             // FIN
             _logger.LogInformation("Proceso de extracción completado correctamente.");
