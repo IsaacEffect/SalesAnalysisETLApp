@@ -1,3 +1,4 @@
+using SalesAnalysisETLApp.Application.Services.Transform;
 using SalesAnalysisETLApp.Domain.RawModels;
 using SalesAnalysisETLApp.Persistence.Sources.Api;
 using SalesAnalysisETLApp.Persistence.Sources.BD;
@@ -77,8 +78,38 @@ public class Worker : BackgroundService
 
             _logger.LogInformation($"Ventas históricas extraídas (BD externa): {historicalSales.Count()}");
 
-            // FIN
+            // Final extracción
             _logger.LogInformation("Proceso de extracción completado correctamente.");
+
+            // TRANSFORMACIÓN DE DATOS
+            _logger.LogInformation("Iniciando proceso de transformación...");
+
+            var transformer = new TransformService();
+
+            // Productos limpios
+            var cleanProducts = transformer.TransformProducts(products, apiProductos);
+            _logger.LogInformation($"Productos transformados (limpios): {cleanProducts.Count()}");
+
+            // Clientes limpios
+            var cleanCustomers = transformer.TransformCustomers(customers, apiClientes);
+            _logger.LogInformation($"Clientes transformados (limpios): {cleanCustomers.Count()}");
+
+            // Ventas limpias (Orders + Details + Historical)
+            var cleanSales = transformer.TransformSales(orders, orderDetails, historicalSales);
+            _logger.LogInformation($"Ventas transformadas (limpias): {cleanSales.Count()}");
+
+            // final transformación
+            _logger.LogInformation("Proceso de transformación completado correctamente.");
+
+            // LOAD
+
+
+
+            // final carga
+
+
+            // FIN
+            _logger.LogInformation("Proceso de ET completado correctamente.");
         }
         catch (Exception ex)
         {

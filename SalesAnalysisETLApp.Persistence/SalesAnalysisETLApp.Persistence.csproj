@@ -7,9 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Destinations\" />
     <Folder Include="Sources\Csv\Repositories\" />
-    <Folder Include="Sources\Dwh\" />
   </ItemGroup>
 
   <ItemGroup>

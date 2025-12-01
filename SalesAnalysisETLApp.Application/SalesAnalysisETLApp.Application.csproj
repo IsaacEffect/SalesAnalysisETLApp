@@ -11,7 +11,10 @@
     <Folder Include="Exceptions\" />
     <Folder Include="Dtos\" />
     <Folder Include="Result\" />
-    <Folder Include="Services\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SalesAnalysisETLApp.Domain\SalesAnalysisETLApp.Domain.csproj" />
   </ItemGroup>
 
 </Project>
