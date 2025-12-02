@@ -1,4 +1,5 @@
 using SalesAnalysisETLApp.Application.Services.Transform;
+using SalesAnalysisETLApp.Domain.Interfaces.Repository;
 using SalesAnalysisETLApp.Domain.RawModels;
 using SalesAnalysisETLApp.Persistence.Sources.Api;
 using SalesAnalysisETLApp.Persistence.Sources.BD;
@@ -10,16 +11,19 @@ public class Worker : BackgroundService
     private readonly ILogger<Worker> _logger;
     private readonly IConfiguration _config;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IDwhRepository _dwhRepo;
 
-    public Worker(ILogger<Worker> logger, IConfiguration config, IHttpClientFactory httpClientFactory)
+    public Worker(ILogger<Worker> logger, IConfiguration config, IHttpClientFactory httpClientFactory, IDwhRepository dwhRepo)
     {
         _logger = logger;
         _config = config;
         _httpClientFactory = httpClientFactory;
+        _dwhRepo = dwhRepo;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // ========================= EXTRACT ============================
         _logger.LogInformation("Iniciando proceso de extracción...");
 
         try
@@ -81,7 +85,8 @@ public class Worker : BackgroundService
             // Final extracción
             _logger.LogInformation("Proceso de extracción completado correctamente.");
 
-            // TRANSFORMACIÓN DE DATOS
+            // ========================= TRANSFORM ============================
+
             _logger.LogInformation("Iniciando proceso de transformación...");
 
             var transformer = new TransformService();
@@ -101,15 +106,119 @@ public class Worker : BackgroundService
             // final transformación
             _logger.LogInformation("Proceso de transformación completado correctamente.");
 
-            // LOAD
+            // ========================= LOAD ============================
 
+            _logger.LogInformation("Iniciando carga de dimensiones en DW...");
 
+            // LIMPIAR DW COMPLETO
+            _logger.LogInformation("Limpiando tablas del DW...");
+            await _dwhRepo.ClearAllAsync();
+            _logger.LogInformation("Todas las tablas del DW fueron limpiadas correctamente.");
 
-            // final carga
+            // DIM CATEGORIA
+            _logger.LogInformation("Cargando DimCategoria...");
 
+            var categorias = cleanProducts
+                .Select(p => p.Categoria)
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Distinct()
+                .ToList();
+
+            var categoriaKeyMap = new Dictionary<string, int>();
+
+            foreach (var cat in categorias)
+            {
+                var key = await _dwhRepo.UpsertCategoriaAsync(cat);
+                categoriaKeyMap[cat] = key;
+            }
+
+            _logger.LogInformation($"DimCategoria cargada: {categoriaKeyMap.Count} categorías.");
+
+            // DIM PRODUCTO
+            _logger.LogInformation("Cargando DimProducto...");
+
+            var productoKeyMap = new Dictionary<(string Nombre, string Categoria), int>();
+
+            foreach (var p in cleanProducts)
+            {
+                var categoriaKey = categoriaKeyMap[p.Categoria];
+
+                var key = await _dwhRepo.UpsertProductoAsync(
+                    nombreProducto: p.NombreProducto,
+                    idCategoria: categoriaKey,
+                    precioUnit: p.PrecioUnit
+                );
+
+                productoKeyMap[(p.NombreProducto, p.Categoria)] = key;
+            }
+
+            _logger.LogInformation($"DimProducto cargada: {productoKeyMap.Count} productos.");
+
+            // DIM CLIENTE
+            _logger.LogInformation("Cargando DimCliente...");
+
+            var clienteKeyMap = new Dictionary<(string Nombre, string? Email), int>();
+
+            foreach (var c in cleanCustomers)
+            {
+                var key = await _dwhRepo.UpsertClienteAsync(
+                    nombreCompleto: c.NombreCompleto,
+                    email: c.Email,
+                    pais: c.Pais,
+                    ciudad: c.Ciudad
+                );
+
+                clienteKeyMap[(c.NombreCompleto, c.Email)] = key;
+            }
+
+            _logger.LogInformation($"DimCliente cargada: {clienteKeyMap.Count} clientes.");
+
+            // DIM UBICACION
+            _logger.LogInformation("Cargando DimUbicacion...");
+
+            var ubicacionKeyMap = new Dictionary<(string? Pais, string? Ciudad), int>();
+
+            var ubicacionesUnicas = cleanCustomers
+                .Select(c => (c.Pais, c.Ciudad))
+                .Distinct()
+                .ToList();
+
+            foreach (var u in ubicacionesUnicas)
+            {
+                var key = await _dwhRepo.UpsertUbicacionAsync(
+                    pais: u.Pais,
+                    region: "N/A",
+                    ciudad: u.Ciudad
+                );
+
+                ubicacionKeyMap[(u.Pais, u.Ciudad)] = key;
+            }
+
+            _logger.LogInformation($"DimUbicacion cargada: {ubicacionKeyMap.Count} ubicaciones.");
+
+            // DIM TIEMPO
+            _logger.LogInformation("Cargando DimTiempo...");
+
+            var tiempoKeyMap = new Dictionary<DateTime, int>();
+
+            var fechasUnicas = cleanSales
+                .Select(s => s.Fecha.Date)
+                .Distinct()
+                .ToList();
+
+            foreach (var f in fechasUnicas)
+            {
+                var key = await _dwhRepo.UpsertTiempoAsync(f);
+                tiempoKeyMap[f] = key;
+            }
+
+            _logger.LogInformation($"DimTiempo cargada: {tiempoKeyMap.Count} fechas.");
+
+            // FIN DEL LOAD DIMENSIONES
+            _logger.LogInformation("Carga de dimensiones completada correctamente.");
 
             // FIN
-            _logger.LogInformation("Proceso de ET completado correctamente.");
+            _logger.LogInformation("Proceso de ETL completado correctamente.");
         }
         catch (Exception ex)
         {

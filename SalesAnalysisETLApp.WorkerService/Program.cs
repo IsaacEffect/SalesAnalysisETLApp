@@ -1,3 +1,7 @@
+using SalesAnalysisETLApp.Application.Services.Transform;
+using SalesAnalysisETLApp.Domain.Interfaces.Repository;
+using SalesAnalysisETLApp.Persistence.Destinations.Dwh;
+
 namespace SalesAnalysisETLApp.WorkerService
 {
     public class Program
@@ -11,6 +15,12 @@ namespace SalesAnalysisETLApp.WorkerService
 
             // Registrar IHttpClientFactory 
             builder.Services.AddHttpClient("SalesApiClient");
+
+            // Registrar Transform Service
+            builder.Services.AddTransient<TransformService>();
+
+            // Registrar el repositorio del Data Warehouse (LOAD)
+            builder.Services.AddTransient<IDwhRepository, DwhRepository>();
 
             // Registrar el Worker
             builder.Services.AddHostedService<Worker>();
