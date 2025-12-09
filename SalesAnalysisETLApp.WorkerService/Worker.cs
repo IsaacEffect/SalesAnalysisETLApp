@@ -5,7 +5,6 @@ using SalesAnalysisETLApp.Persistence.Sources.Api;
 using SalesAnalysisETLApp.Persistence.Sources.BD;
 using SalesAnalysisETLApp.Persistence.Sources.Csv;
 
-
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
@@ -13,7 +12,11 @@ public class Worker : BackgroundService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IDwhRepository _dwhRepo;
 
-    public Worker(ILogger<Worker> logger, IConfiguration config, IHttpClientFactory httpClientFactory, IDwhRepository dwhRepo)
+    public Worker(
+        ILogger<Worker> logger,
+        IConfiguration config,
+        IHttpClientFactory httpClientFactory,
+        IDwhRepository dwhRepo)
     {
         _logger = logger;
         _config = config;
@@ -23,206 +26,192 @@ public class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // ========================= EXTRACT ============================
         _logger.LogInformation("Iniciando proceso de extracción...");
 
         try
         {
-            // EXTRAER DESDE CSV
-            var productsPath = GetRequiredConfig("FilePaths:ProductsCsv");
-            var customersPath = GetRequiredConfig("FilePaths:CustomersCsv");
-            var ordersPath = GetRequiredConfig("FilePaths:OrdersCsv");
-            var orderDetailsPath = GetRequiredConfig("FilePaths:OrderDetailsCsv");
+            // ========================= EXTRACT ============================
+            var products = await new CsvExtractor<RawProduct>(GetRequiredConfig("FilePaths:ProductsCsv")).ExtractAsync();
+            var customers = await new CsvExtractor<RawCustomer>(GetRequiredConfig("FilePaths:CustomersCsv")).ExtractAsync();
+            var orders = await new CsvExtractor<RawOrder>(GetRequiredConfig("FilePaths:OrdersCsv")).ExtractAsync();
+            var orderDetails = await new CsvExtractor<RawOrderDetail>(GetRequiredConfig("FilePaths:OrderDetailsCsv")).ExtractAsync();
 
-            var productsExtractor = new CsvExtractor<RawProduct>(productsPath);
-            var customersExtractor = new CsvExtractor<RawCustomer>(customersPath);
-            var ordersExtractor = new CsvExtractor<RawOrder>(ordersPath);
-            var orderDetailsExtractor = new CsvExtractor<RawOrderDetail>(orderDetailsPath);
-
-            var products = await productsExtractor.ExtractAsync();
-            var customers = await customersExtractor.ExtractAsync();
-            var orders = await ordersExtractor.ExtractAsync();
-            var orderDetails = await orderDetailsExtractor.ExtractAsync();
-
-            _logger.LogInformation($"Productos extraídos (CSV): {products.Count()}");
-            _logger.LogInformation($"Clientes extraídos (CSV): {customers.Count()}");
-            _logger.LogInformation($"Órdenes extraídas (CSV): {orders.Count()}");
-            _logger.LogInformation($"Detalles de órdenes extraídos (CSV): {orderDetails.Count()}");
-
-            // EXTRAER DESDE API
-            _logger.LogInformation("Extrayendo datos actualizados desde API...");
+            _logger.LogInformation($"Productos CSV: {products.Count()}");
+            _logger.LogInformation($"Clientes CSV: {customers.Count()}");
+            _logger.LogInformation($"Órdenes CSV: {orders.Count()}");
+            _logger.LogInformation($"Detalles CSV: {orderDetails.Count()}");
 
             var httpClient = _httpClientFactory.CreateClient("SalesApiClient");
-
             var baseUrl = GetRequiredConfig("ApiSettings:BaseUrl");
-            var clientesEndpoint = GetRequiredConfig("ApiSettings:ClientesEndpoint");
-            var productosEndpoint = GetRequiredConfig("ApiSettings:ProductosEndpoint");
 
-            var apiClientesExtractor = new ApiExtractor<RawCustomer>(httpClient, $"{baseUrl}{clientesEndpoint}");
-            var apiProductosExtractor = new ApiExtractor<RawProduct>(httpClient, $"{baseUrl}{productosEndpoint}");
+            var apiClientes = await new ApiExtractor<RawCustomer>(httpClient, $"{baseUrl}{GetRequiredConfig("ApiSettings:ClientesEndpoint")}").ExtractAsync();
+            var apiProductos = await new ApiExtractor<RawProduct>(httpClient, $"{baseUrl}{GetRequiredConfig("ApiSettings:ProductosEndpoint")}").ExtractAsync();
 
-            var apiClientes = await apiClientesExtractor.ExtractAsync();
-            var apiProductos = await apiProductosExtractor.ExtractAsync();
+            _logger.LogInformation($"Clientes API: {apiClientes.Count()}");
+            _logger.LogInformation($"Productos API: {apiProductos.Count()}");
 
-            _logger.LogInformation($"Clientes extraídos (API): {apiClientes.Count()}");
-            _logger.LogInformation($"Productos extraídos (API): {apiProductos.Count()}");
+            var historicalSales = await new DatabaseExtractor<RawHistoricalSale>(
+                GetRequiredConfig("ConnectionStrings:ExternalDB"),
+                GetRequiredConfig("Queries:HistoricalSales")
+            ).ExtractAsync();
 
-            // EXTRAER DESDE BD EXTERNA
-            _logger.LogInformation("Extrayendo datos desde Base de Datos externa...");
-
-            var externalDbConnection = GetRequiredConfig("ConnectionStrings:ExternalDB");
-            var externalDbQuery = GetRequiredConfig("Queries:HistoricalSales");
-
-            var historicalSalesExtractor = new DatabaseExtractor<RawHistoricalSale>(
-                externalDbConnection,
-                externalDbQuery
-            );
-
-            var historicalSales = await historicalSalesExtractor.ExtractAsync();
-
-            _logger.LogInformation($"Ventas históricas extraídas (BD externa): {historicalSales.Count()}");
-
-            // Final extracción
-            _logger.LogInformation("Proceso de extracción completado correctamente.");
+            _logger.LogInformation($"Ventas históricas BD externa: {historicalSales.Count()}");
+            _logger.LogInformation("Extracción completada.");
 
             // ========================= TRANSFORM ============================
-
-            _logger.LogInformation("Iniciando proceso de transformación...");
+            _logger.LogInformation("Iniciando transformación...");
 
             var transformer = new TransformService();
 
-            // Productos limpios
             var cleanProducts = transformer.TransformProducts(products, apiProductos);
-            _logger.LogInformation($"Productos transformados (limpios): {cleanProducts.Count()}");
-
-            // Clientes limpios
             var cleanCustomers = transformer.TransformCustomers(customers, apiClientes);
-            _logger.LogInformation($"Clientes transformados (limpios): {cleanCustomers.Count()}");
-
-            // Ventas limpias (Orders + Details + Historical)
             var cleanSales = transformer.TransformSales(orders, orderDetails, historicalSales);
-            _logger.LogInformation($"Ventas transformadas (limpias): {cleanSales.Count()}");
 
-            // final transformación
-            _logger.LogInformation("Proceso de transformación completado correctamente.");
+            _logger.LogInformation($"Productos limpios: {cleanProducts.Count()}");
+            _logger.LogInformation($"Clientes limpios: {cleanCustomers.Count()}");
+            _logger.LogInformation($"Ventas limpias: {cleanSales.Count()}");
+
+            _logger.LogInformation("Transformación completada.");
 
             // ========================= LOAD ============================
+            _logger.LogInformation("Iniciando carga en DW...");
 
-            _logger.LogInformation("Iniciando carga de dimensiones en DW...");
-
-            // LIMPIAR DW COMPLETO
-            _logger.LogInformation("Limpiando tablas del DW...");
             await _dwhRepo.ClearAllAsync();
-            _logger.LogInformation("Todas las tablas del DW fueron limpiadas correctamente.");
+            _logger.LogInformation("DW limpiado.");
 
-            // DIM CATEGORIA
-            _logger.LogInformation("Cargando DimCategoria...");
-
-            var categorias = cleanProducts
+            // ========== CATEGORIA ==========
+            var categoriaKeyMap = cleanProducts
                 .Select(p => p.Categoria)
-                .Where(c => !string.IsNullOrWhiteSpace(c))
                 .Distinct()
-                .ToList();
-
-            var categoriaKeyMap = new Dictionary<string, int>();
-
-            foreach (var cat in categorias)
-            {
-                var key = await _dwhRepo.UpsertCategoriaAsync(cat);
-                categoriaKeyMap[cat] = key;
-            }
-
-            _logger.LogInformation($"DimCategoria cargada: {categoriaKeyMap.Count} categorías.");
-
-            // DIM PRODUCTO
-            _logger.LogInformation("Cargando DimProducto...");
-
-            var productoKeyMap = new Dictionary<(string Nombre, string Categoria), int>();
-
-            foreach (var p in cleanProducts)
-            {
-                var categoriaKey = categoriaKeyMap[p.Categoria];
-
-                var key = await _dwhRepo.UpsertProductoAsync(
-                    nombreProducto: p.NombreProducto,
-                    idCategoria: categoriaKey,
-                    precioUnit: p.PrecioUnit
+                .ToDictionary(
+                    c => c,
+                    c => _dwhRepo.UpsertCategoriaAsync(c).Result
                 );
 
+            // ========== PRODUCTO ==========
+            var productoKeyMap = new Dictionary<(string Nombre, string Categoria), int>();
+            foreach (var p in cleanProducts)
+            {
+                var key = await _dwhRepo.UpsertProductoAsync(
+                    p.NombreProducto,
+                    categoriaKeyMap[p.Categoria],
+                    p.PrecioUnit
+                );
                 productoKeyMap[(p.NombreProducto, p.Categoria)] = key;
             }
 
-            _logger.LogInformation($"DimProducto cargada: {productoKeyMap.Count} productos.");
-
-            // DIM CLIENTE
-            _logger.LogInformation("Cargando DimCliente...");
-
+            // ========== CLIENTE ==========
             var clienteKeyMap = new Dictionary<(string Nombre, string? Email), int>();
-
             foreach (var c in cleanCustomers)
             {
-                var key = await _dwhRepo.UpsertClienteAsync(
-                    nombreCompleto: c.NombreCompleto,
-                    email: c.Email,
-                    pais: c.Pais,
-                    ciudad: c.Ciudad
-                );
-
-                clienteKeyMap[(c.NombreCompleto, c.Email)] = key;
+                clienteKeyMap[(c.NombreCompleto, c.Email)] =
+                    await _dwhRepo.UpsertClienteAsync(c.NombreCompleto, c.Email, c.Pais, c.Ciudad);
             }
 
-            _logger.LogInformation($"DimCliente cargada: {clienteKeyMap.Count} clientes.");
-
-            // DIM UBICACION
-            _logger.LogInformation("Cargando DimUbicacion...");
-
-            var ubicacionKeyMap = new Dictionary<(string? Pais, string? Ciudad), int>();
-
-            var ubicacionesUnicas = cleanCustomers
+            // ========== UBICACION ==========
+            var ubicacionKeyMap = cleanCustomers
                 .Select(c => (c.Pais, c.Ciudad))
                 .Distinct()
-                .ToList();
-
-            foreach (var u in ubicacionesUnicas)
-            {
-                var key = await _dwhRepo.UpsertUbicacionAsync(
-                    pais: u.Pais,
-                    region: "N/A",
-                    ciudad: u.Ciudad
+                .ToDictionary(
+                    x => x,
+                    x => _dwhRepo.UpsertUbicacionAsync(x.Pais, "N/A", x.Ciudad).Result
                 );
 
-                ubicacionKeyMap[(u.Pais, u.Ciudad)] = key;
-            }
-
-            _logger.LogInformation($"DimUbicacion cargada: {ubicacionKeyMap.Count} ubicaciones.");
-
-            // DIM TIEMPO
-            _logger.LogInformation("Cargando DimTiempo...");
-
-            var tiempoKeyMap = new Dictionary<DateTime, int>();
-
-            var fechasUnicas = cleanSales
+            // ========== TIEMPO ==========
+            var tiempoKeyMap = cleanSales
                 .Select(s => s.Fecha.Date)
                 .Distinct()
-                .ToList();
+                .ToDictionary(
+                    f => f,
+                    f => _dwhRepo.UpsertTiempoAsync(f).Result
+                );
 
-            foreach (var f in fechasUnicas)
+            _logger.LogInformation("Dimensiones cargadas.");
+
+            // ======================= MAPEO ORIGINAL -> DIM =======================
+
+            var productoIdToDim = cleanProducts.ToDictionary(
+                p => p.IdOriginal,
+                p => productoKeyMap[(p.NombreProducto, p.Categoria)]
+            );
+
+            var clienteIdToDim = cleanCustomers.ToDictionary(
+                c => c.IdOriginal,
+                c => clienteKeyMap[(c.NombreCompleto, c.Email)]
+            );
+
+            var clienteIdToLocation = cleanCustomers.ToDictionary(
+                c => c.IdOriginal,
+                c => (c.Pais, c.Ciudad)
+            );
+
+            // ======================= FACT VENTAS =======================
+
+            _logger.LogInformation("Iniciando carga de FactVentas...");
+
+            int registrosFact = 0;
+
+            var productosNoMapeados = new HashSet<int>();
+            var clientesNoMapeados = new HashSet<int>();
+
+            foreach (var s in cleanSales)
             {
-                var key = await _dwhRepo.UpsertTiempoAsync(f);
-                tiempoKeyMap[f] = key;
+                // PRODUCTO
+                // PRODUCTOS
+                if (!productoIdToDim.TryGetValue(s.ProductID, out var idProd))
+                {
+                    if (productosNoMapeados.Add(s.ProductID))
+                    {
+                        // Guardar en BD para auditoría
+                        await _dwhRepo.InsertProductoNoMapeadoAsync(s.ProductID);
+                    }
+                    continue;
+                }
+
+                // CLIENTE
+                if (!clienteIdToDim.TryGetValue(s.CustomerID, out var idCli))
+                {
+                    if (clientesNoMapeados.Add(s.CustomerID))
+                        _logger.LogWarning($"Cliente no mapeado: {s.CustomerID}");
+                    continue;
+                }
+
+                var (pais, ciudad) = clienteIdToLocation[s.CustomerID];
+
+                if (!ubicacionKeyMap.TryGetValue((pais, ciudad), out var idUbi))
+                {
+                    idUbi = await _dwhRepo.UpsertUbicacionAsync(pais, "N/A", ciudad);
+                    ubicacionKeyMap[(pais, ciudad)] = idUbi;
+                }
+
+                var idTiempo = tiempoKeyMap[s.Fecha.Date];
+
+                await _dwhRepo.InsertFactVentaAsync(
+                    idProducto: idProd,
+                    idCliente: idCli,
+                    idTiempo: idTiempo,
+                    idUbicacion: idUbi,
+                    cantidad: s.Cantidad,
+                    totalVenta: s.TotalVenta
+                );
+
+                registrosFact++;
             }
 
-            _logger.LogInformation($"DimTiempo cargada: {tiempoKeyMap.Count} fechas.");
+            // ======================= RESUMEN =======================
 
-            // FIN DEL LOAD DIMENSIONES
-            _logger.LogInformation("Carga de dimensiones completada correctamente.");
+            if (productosNoMapeados.Count > 0)
+                _logger.LogWarning($"Productos NO mapeados: {productosNoMapeados.Count} | Ejemplos: {string.Join(", ", productosNoMapeados.Take(20))}");
 
-            // FIN
-            _logger.LogInformation("Proceso de ETL completado correctamente.");
+            if (clientesNoMapeados.Count > 0)
+                _logger.LogWarning($"Clientes NO mapeados: {clientesNoMapeados.Count} | Ejemplos: {string.Join(", ", clientesNoMapeados.Take(20))}");
+
+            _logger.LogInformation($"FactVentas cargada: {registrosFact} registros.");
+            _logger.LogInformation("ETL COMPLETADO.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error durante el proceso de extracción.");
+            _logger.LogError(ex, "Error durante el proceso ETL.");
         }
     }
 
@@ -230,9 +219,8 @@ public class Worker : BackgroundService
     {
         var value = _config[key];
         if (string.IsNullOrWhiteSpace(value))
-        {
             throw new InvalidOperationException($"Configuración requerida no encontrada: '{key}'.");
-        }
+
         return value;
     }
 }

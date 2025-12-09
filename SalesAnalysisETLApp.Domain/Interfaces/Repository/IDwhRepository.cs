@@ -8,6 +8,17 @@
         Task<int> UpsertTiempoAsync(DateTime fecha);
         Task<int> UpsertUbicacionAsync(string? pais, string? region, string? ciudad);
 
+        Task InsertFactVentaAsync(
+            int idProducto,
+            int idCliente,
+            int idTiempo,
+            int idUbicacion,
+            int cantidad,
+            decimal totalVenta
+        );
+
+        Task InsertProductoNoMapeadoAsync(int productId);
+
         // métodos bulk
         Task<IEnumerable<int>> UpsertCategoriasAsync(IEnumerable<string> nombres);
         Task<IEnumerable<int>> UpsertClientesAsync(IEnumerable<(string Nombre, string? Email, string? Pais, string? Ciudad)> clientes);

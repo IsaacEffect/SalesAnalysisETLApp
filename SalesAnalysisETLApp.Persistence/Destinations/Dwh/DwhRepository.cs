@@ -194,6 +194,45 @@ namespace SalesAnalysisETLApp.Persistence.Destinations.Dwh
             return list;
         }
 
+        public async Task InsertFactVentaAsync(
+            int idProducto,
+            int idCliente,
+            int idTiempo,
+            int idUbicacion,
+            int cantidad,
+            decimal totalVenta
+)
+        {
+            var sql = @"
+        INSERT INTO [Fact].[FactVentas]
+        (IdProducto, IdCliente, IdTiempo, IdUbicacion, Cantidad, TotalVenta)
+        VALUES (@IdProducto, @IdCliente, @IdTiempo, @IdUbicacion, @Cantidad, @TotalVenta);
+    ";
+
+            using var connection = GetConnection();
+            await connection.ExecuteAsync(sql, new
+            {
+                IdProducto = idProducto,
+                IdCliente = idCliente,
+                IdTiempo = idTiempo,
+                IdUbicacion = idUbicacion,
+                Cantidad = cantidad,
+                TotalVenta = totalVenta
+            });
+        }
+
+        public async Task InsertProductoNoMapeadoAsync(int productId)
+        {
+            const string sql = @"
+                IF NOT EXISTS (SELECT 1 FROM Log.ProductosNoMapeados WHERE ProductID = @ProductID)
+                INSERT INTO Log.ProductosNoMapeados (ProductID)
+                VALUES (@ProductID);
+            ";
+
+            using var conn = GetConnection();
+            await conn.ExecuteAsync(sql, new { ProductID = productId });
+        }
+
         public async Task ClearAllAsync()
         {
             using var conn = GetConnection();
@@ -206,6 +245,7 @@ namespace SalesAnalysisETLApp.Persistence.Destinations.Dwh
                 DELETE FROM Dimension.DimCliente;
                 DELETE FROM Dimension.DimUbicacion;
                 DELETE FROM Dimension.DimTiempo;
+                DELETE FROM Log.ProductosNoMapeados;
             ";
 
             await conn.ExecuteAsync(sql);

@@ -36,11 +36,12 @@ namespace SalesAnalysisETLApp.Application.Services.Transform
                 .Where(p => !string.IsNullOrWhiteSpace(p.ProductName))
                 .Select(p => new TProduct
                 {
+                    IdOriginal = p.ProductID,                       // <-- agregado
                     NombreProducto = NormalizeString(p.ProductName),
                     Categoria = NormalizeString(p.Category),
                     PrecioUnit = p.Price
                 })
-                .GroupBy(p => p.NombreProducto)
+                .GroupBy(p => new { p.NombreProducto, p.Categoria }) // agrupar por nombre+categoria para evitar colisiones
                 .Select(g => g.First());
 
             return cleaned;
@@ -61,18 +62,19 @@ namespace SalesAnalysisETLApp.Application.Services.Transform
 
                     return new TCustomer
                     {
+                        IdOriginal = c.CustomerID,                    // <-- agregado
                         NombreCompleto = NormalizeString(nombreCompletoRaw),
                         Email = c.Email?.ToLower(),
                         Pais = NormalizeString(c.Country),
                         Ciudad = NormalizeString(c.City)
                     };
                 })
-
-                .GroupBy(c => c.NombreCompleto)
+                .GroupBy(c => new { c.NombreCompleto, c.Email }) // agrupar por nombre+email
                 .Select(g => g.First());
 
             return cleaned;
         }
+
 
         // =============================
         // TRANSFORM VENTAS
